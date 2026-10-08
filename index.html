@@ -119,6 +119,13 @@
         <button id="btn-story" class="btn btn-secondary">🎯 OBJETIVO & HISTÓRIA</button>
       </div>
 
+      <div class="level-nav">
+        <button id="btn-menu-lvl-prev" class="btn btn-secondary">◀</button>
+        <span id="menu-level-label">FASE 01 / 20</span>
+        <button id="btn-menu-lvl-next" class="btn btn-secondary">▶</button>
+      </div>
+      <div style="margin-top:6px; font-size:11px; color:#a4b0d0;">Troque de fase com ◀ ▶ ou com as setas ← → do teclado</div>
+
       <div style="margin-top: 26px; font-size: 13px; color: #a4b0d0;">
         Pressione <strong style="color:var(--accent);">[ESPAÇO]</strong> para Pular • <strong style="color:var(--secondary);">[S / ↓]</strong> para Rolar • <strong style="color:var(--primary);">[E]</strong> para Câmera Lenta
       </div>
@@ -224,6 +231,9 @@
         <div class="shop-grid" id="shop-items-container">
           <!-- Upgrades rendered dynamically via JS -->
         </div>
+
+        <h3 class="shop-section-title">🦸 Personagens (Skins)</h3>
+        <div class="skin-grid" id="skins-container"></div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:18px; border-top:1px solid rgba(255,255,255,0.1); padding-top:14px;">
           <button id="btn-shop-back" class="btn btn-secondary">VOLTAR</button>
@@ -336,7 +346,46 @@
           <button id="btn-resume" class="btn">RETOMAR JOGO</button>
           <button id="btn-pause-shop" class="btn btn-accent">🛒 LOJA DE EVOLUÇÃO</button>
           <button id="btn-pause-restart" class="btn btn-secondary">REINICIAR NÍVEL</button>
+          <div class="level-nav" style="margin-top:0;">
+            <button id="btn-pause-lvl-prev" class="btn btn-secondary">◀</button>
+            <span id="pause-level-label">FASE 01 / 20</span>
+            <button id="btn-pause-lvl-next" class="btn btn-secondary">▶</button>
+          </div>
+          <button id="btn-pause-go" class="btn btn-secondary">IR PARA A FASE SELECIONADA</button>
+          <button id="btn-pause-guide" class="btn btn-secondary">📖 GUIA DE PODERES E OBJETOS</button>
           <button id="btn-pause-menu" class="btn btn-secondary">MENU PRINCIPAL</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCREEN: GUIA DA PARTIDA (poderes, orbs e objetos) -->
+    <div id="screen-intro" class="overlay-screen hidden">
+      <div class="modal-box" style="max-width:880px;">
+        <h2>
+          <span>📖 GUIA DA PARTIDA</span>
+          <span id="btn-guide-skip" style="font-size:14px; color:#fff; cursor:pointer;">PULAR ✕</span>
+        </h2>
+        <p class="guide-note"><span class="highlight">🎯 Objetivo:</span> corra pelos telhados até a <strong>Zona Segura</strong> antes do tempo acabar, sem ser alcançado pelo <strong>Perseguidor</strong>. Colete moedas e evolua na Loja.</p>
+        <p class="guide-note"><span class="highlight">🎮 Controles:</span> <strong>[ESPAÇO / W / ↑]</strong> pular (no ar: pulo duplo) • <strong>[S / ↓]</strong> rolar (no ar: mergulho rápido) • <strong>[E]</strong> câmera lenta • <strong>[P / ESC]</strong> pausa • <strong>[M]</strong> som • no celular, use os botões da tela.</p>
+        <p class="guide-note"><span class="highlight">🚀 Velocidade por acertos:</span> cada obstáculo superado sem tropeçar (slide sob tubo, pulo sobre caixa ou antena) aumenta o combo e dá bônus de velocidade (até +30%), que te afasta do Perseguidor. Tropeçar reduz o bônus pela metade.</p>
+        <p class="guide-note"><span class="highlight">⚡ Câmera lenta [E]:</span> desacelera o tempo por 4s e dá um <strong>dash para a frente</strong> (uma vez por ativação) que abre distância do Perseguidor. Usa 1 carga.</p>
+        <p class="guide-note"><span class="highlight">💨 Slide Dash:</span> rolar no chão dá uma arrancada rápida.</p>
+        <div class="guide-grid">
+          <div class="guide-item"><div class="guide-ico" style="background:#ffd700;">$</div><div><b>Moedas</b> <span class="tag-good">BENEFÍCIO</span><br>Valem 10 × combo × multiplicador da skin. Servem para comprar upgrades e personagens. Ímã atrai moedas próximas.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#ff2200;"></div><div><b>Bola vermelha — TURBO</b> <span class="tag-good">BENEFÍCIO</span><br>+36% de velocidade por 5s, só para você. Abre distância do Perseguidor.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#b537f2;"></div><div><b>Bola roxa — 2X MOEDAS</b> <span class="tag-good">BENEFÍCIO</span><br>Dobra o valor das moedas por 5s.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#00f0ff;"></div><div><b>Bola ciano — +TEMPO</b> <span class="tag-good">BENEFÍCIO</span><br>Adiciona 20 segundos ao cronômetro da fase.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#00ff66;"></div><div><b>Bola verde — AMEAÇA PARADA</b> <span class="tag-good">BENEFÍCIO</span><br>Afasta e segura o Perseguidor por 10s.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#00f0ff;">⚡</div><div><b>Orbe de Câmera Lenta</b> <span class="tag-good">BENEFÍCIO</span><br>+1 carga de Câmera Lenta (máximo 5).</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#00ff66;">▲</div><div><b>Mola verde</b> <span class="tag-good">BENEFÍCIO</span><br>Super impulso até as plataformas altas (rota com moedas e itens). Soma ao combo.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#ff1e42;">▼</div><div><b>Tubo / duto vermelho</b> <span class="tag-bad">PERIGO</span><br>Obstáculo baixo. Role por baixo com S/↓ (slide perfeito = combo + velocidade). De pé, você tropeça.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#ff1e42;">▲</div><div><b>Caixa d'água / condensador vermelho</b> <span class="tag-bad">PERIGO</span><br>Obstáculo sólido. Pule por cima. Tropeçar quebra o combo e aproxima o Perseguidor.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#ff1e42;">|</div><div><b>Antena / haste laser vermelha (fase 6+)</b> <span class="tag-bad">PERIGO</span><br>Obstáculo alto. Pule — use o pulo duplo se precisar.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#111;color:#fff;">☠</div><div><b>Perseguidor (visor vermelho)</b> <span class="tag-bad">PERIGO</span><br>Se te alcançar, a missão falha. Ele não ganha bônus: acertos, turbo e dash te afastam dele.</div></div>
+          <div class="guide-item"><div class="guide-ico" style="background:#00ff66;">★</div><div><b>Zona Segura</b> <span class="tag-good">BENEFÍCIO</span><br>Linha verde no fim da fase. Na fase 20 começa o confronto final com reflexos (QTE).</div></div>
+        </div>
+        <div style="text-align:center; margin-top:16px;">
+          <button id="btn-guide-start" class="btn" style="width:280px; margin:0 auto;">ENTENDI — COMEÇAR</button>
         </div>
       </div>
     </div>

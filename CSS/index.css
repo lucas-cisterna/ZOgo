@@ -59,7 +59,7 @@
       align-items: center;
       justify-content: center;
       z-index: 50;
-      transition: opacity 0.25s ease, visibility 0.25s ease;
+      transition: opacity 0.15s ease, visibility 0.15s ease;
       padding: 24px;
       text-align: center;
     }
@@ -113,7 +113,7 @@
       cursor: pointer;
       border-radius: 8px;
       outline: none;
-      transition: all 0.2s cubic-bezier(0.2, 1, 0.3, 1);
+      transition: transform 0.12s cubic-bezier(0.2, 1, 0.3, 1), box-shadow 0.12s ease, border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
       box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
       display: flex;
       align-items: center;
@@ -231,7 +231,6 @@
       align-items: center;
       gap: 8px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-      backdrop-filter: blur(4px);
     }
 
     .hud-level-text { color: var(--accent); font-size: 15px; }
@@ -364,7 +363,7 @@
       justify-content: center;
       font-size: 15px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
     }
     .hud-icon-btn:hover {
       background: var(--primary);
@@ -530,7 +529,7 @@
       border-radius: 6px;
       cursor: pointer;
       font-size: 14px;
-      transition: all 0.2s;
+      transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease, color 0.12s ease, background-color 0.12s ease;
     }
     .lvl-btn:hover:not(:disabled) {
       background: var(--primary);
@@ -644,3 +643,22 @@
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
     ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 3px; }
+
+    /* ===== Melhorias: loja de skins, guia da partida, seletor de fase ===== */
+    .shop-section-title { font-size: 16px; color: var(--accent); letter-spacing: 2px; margin: 18px 0 4px; text-transform: uppercase; }
+    .skin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+    .skin-card { flex-direction: row; justify-content: flex-start; gap: 12px; }
+    .skin-card.equipped { border-color: var(--accent); box-shadow: 0 0 14px rgba(255, 230, 0, 0.35); }
+    .skin-prev { flex: 0 0 84px; width: 84px; height: 96px; background: linear-gradient(160deg, rgba(120, 130, 170, 0.35), rgba(30, 36, 70, 0.6)); border-radius: 8px; }
+    .skin-info { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+    .skin-stats { font-size: 11px; color: #a4a9c6; line-height: 1.45; }
+    .level-nav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; }
+    .level-nav .btn { padding: 8px 16px; }
+    .level-nav span { min-width: 150px; text-align: center; font-weight: 800; letter-spacing: 2px; color: var(--accent); }
+    .guide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 8px; margin-top: 10px; }
+    .guide-item { display: flex; gap: 10px; background: rgba(18, 22, 42, 0.75); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.35; color: #c9cde4; }
+    .guide-ico { flex: 0 0 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #000; font-weight: 900; }
+    .guide-item b { color: #fff; }
+    .tag-good { color: #00ff66; font-weight: 800; font-size: 10px; }
+    .tag-bad { color: #ff1e42; font-weight: 800; font-size: 10px; }
+    .guide-note { font-size: 13px !important; margin-bottom: 8px !important; }

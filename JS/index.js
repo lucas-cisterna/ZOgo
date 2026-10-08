@@ -248,11 +248,34 @@
       }
     };
 
+    const SKIN_GROUPS = [
+      { price: 500,  speed: 0.05, jump: 0.05, coin: 2 },
+      { price: 1000, speed: 0.10, jump: 0.10, coin: 4 },
+      { price: 2000, speed: 0.20, jump: 0.20, coin: 8 },
+      { price: 4000, speed: 0.40, jump: 0.40, coin: 16 }
+    ];
+    const SKINS = [{ id: 0, name: 'Original', price: 0, speed: 0, jump: 0, coin: 1, body: '#0a0a0e', accent: '#00f0ff', extra: 'none' }].concat([
+      ['Teia Urbana',      '#c1121f', '#1d4ed8', 'spider'],
+      ['Sombra Noturna',   '#1f2937', '#facc15', 'bat'],
+      ['Astro Solar',      '#1d4ed8', '#ef4444', 'sun'],
+      ['Ninja Umbra',      '#3b0764', '#c084fc', 'ninja'],
+      ['Cyber Guerreiro',  '#0f766e', '#22d3ee', 'cyber'],
+      ['Raio Veloz',       '#ca8a04', '#fff176', 'volt'],
+      ['Astronauta',       '#e5e7eb', '#38bdf8', 'astro'],
+      ['Caçador Futuro',   '#166534', '#84cc16', 'hunter'],
+      ['Samurai Neon',     '#9d174d', '#f472b6', 'samurai'],
+      ['Robô Titã',        '#6b7280', '#f97316', 'robot'],
+      ['Guardião Cósmico', '#5b21b6', '#e879f9', 'cosmic'],
+      ['Lenda das Chamas', '#b91c1c', '#fb923c', 'flame']
+    ].map((s, i) => Object.assign({ id: i + 1, name: s[0], body: s[1], accent: s[2], extra: s[3] }, SKIN_GROUPS[Math.floor(i / 3)])));
+
     const GameSave = {
       coins: 0,
       currentLevel: 1,
       highestUnlockedLevel: 1,
       upgrades: { speed: 0, jump: 0, slide: 0, shield: 0, time: 0 },
+      skinsOwned: [0],
+      skinEquipped: 0,
 
       load() {
         try {
@@ -262,6 +285,9 @@
             if (typeof data.coins === 'number') this.coins = data.coins;
             if (typeof data.currentLevel === 'number') this.currentLevel = Math.min(20, Math.max(1, data.currentLevel));
             if (typeof data.highestUnlockedLevel === 'number') this.highestUnlockedLevel = Math.min(20, Math.max(1, data.highestUnlockedLevel));
+            if (Array.isArray(data.skinsOwned)) this.skinsOwned = data.skinsOwned.filter(n => Number.isInteger(n) && n >= 0 && n <= 12);
+            if (!this.skinsOwned.includes(0)) this.skinsOwned.push(0);
+            if (typeof data.skinEquipped === 'number' && this.skinsOwned.includes(data.skinEquipped)) this.skinEquipped = data.skinEquipped;
             if (data.upgrades) {
               for (let k in this.upgrades) {
                 if (typeof data.upgrades[k] === 'number') {
@@ -279,7 +305,9 @@
             coins: this.coins,
             currentLevel: this.currentLevel,
             highestUnlockedLevel: this.highestUnlockedLevel,
-            upgrades: this.upgrades
+            upgrades: this.upgrades,
+            skinsOwned: this.skinsOwned,
+            skinEquipped: this.skinEquipped
           };
           localStorage.setItem('vector_runner_save', JSON.stringify(data));
         } catch(e) {}
@@ -303,6 +331,22 @@
           return true;
         }
         return false;
+      },
+
+      buySkin(id) {
+        const sk = SKINS[id];
+        if (!sk || this.skinsOwned.includes(id) || this.coins < sk.price) return false;
+        this.coins -= sk.price;
+        this.skinsOwned.push(id);
+        this.save();
+        return true;
+      },
+
+      equipSkin(id) {
+        if (!this.skinsOwned.includes(id)) return false;
+        this.skinEquipped = id;
+        this.save();
+        return true;
       }
     };
 
@@ -374,6 +418,7 @@
           const b = { x: currentX + gap, y: bY, w: bWidth, h: 500 };
           buildings.push(b);
 
+          const obsStart = obstacles.length;
           // Obstacles: Now bright Red with Hologram Warning signs!
           const numObstacles = Math.floor(Math.random() * 2) + 1;
           for (let o = 0; o < numObstacles; o++) {
@@ -436,6 +481,7 @@
             }
           }
 
+          const cs = coins.length, os = slowmoOrbs.length, ps = powerups.length;
           // Ground Coins
           if (Math.random() < 0.72) {
             const coinStartX = b.x + 80;
@@ -461,6 +507,23 @@
             const pType = types[Math.floor(Math.random() * types.length)];
             powerups.push({ x: b.x + b.w - 90, y: b.y - 36, type: pType, radius: 14 });
           }
+
+          // Posições seguras: itens do chão não ficam dentro de obstáculos
+          // (sob tubo = recompensa para quem rola; sobre caixa/antena = recompensa para quem pula)
+          const bObs = obstacles.slice(obsStart);
+          const fixSafe = (it) => {
+            for (const ob of bObs) {
+              if (it.x > ob.x - 24 && it.x < ob.x + ob.w + 24) {
+                if (ob.type === 'pipe') it.y = b.y - 16;
+                else if (ob.type === 'tank') it.y = b.y - 98;
+                else it.y = b.y - 135;
+                if (it.baseY !== undefined) it.baseY = it.y;
+              }
+            }
+          };
+          coins.slice(cs).forEach(fixSafe);
+          slowmoOrbs.slice(os).forEach(fixSafe);
+          powerups.slice(ps).forEach(fixSafe);
 
           currentX = b.x + b.w;
         }
@@ -657,13 +720,49 @@
         this.shakeTimer = 0;
         this.shakeAmount = 0;
 
+        // Velocidade por acertos, dash da câmera lenta, guia e seletor de fase
+        this.speedBonus = 0;
+        this.dashTimer = 0;
+        this.guideFromPause = false;
+        this.pauseSelLevel = 1;
+        this.shopReturn = null;      // tela para onde a loja devolve o jogador
+        this._renderedState = null;
+        this.coinSprite = this.createCoinSprite();
+
+        // Botões não mantêm o foco: evita ESPAÇO/ENTER reativarem o último botão clicado
+        document.addEventListener('click', (e) => {
+          const b = e.target.closest ? e.target.closest('button') : null;
+          if (b) b.blur();
+        });
+
         this.initInput();
         this.initUI();
+        this.updateMenuLevelLabel();
         this.resizeCanvas();
         window.addEventListener('resize', () => this.resizeCanvas());
 
         this.lastTime = performance.now();
         requestAnimationFrame((t) => this.gameLoop(t));
+      }
+
+      createCoinSprite() {
+        const cv = document.createElement('canvas');
+        cv.width = 48;
+        cv.height = 48;
+        const c = cv.getContext('2d');
+        c.translate(24, 24);
+        c.fillStyle = '#ffd700';
+        c.shadowColor = '#ffd700';
+        c.shadowBlur = 12;
+        c.beginPath();
+        c.arc(0, 0, 11, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#000';
+        c.font = 'bold 11px sans-serif';
+        c.textAlign = 'center';
+        c.textBaseline = 'middle';
+        c.fillText('$', 0, 1);
+        return cv;
       }
 
       resizeCanvas() {
@@ -680,6 +779,7 @@
 
           if (e.code === 'KeyM') this.toggleSound();
           if (e.code === 'KeyP' || e.code === 'Escape') this.togglePause();
+          if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') this.handleLevelKey(e.code === 'ArrowRight' ? 1 : -1);
 
           if (e.code === 'KeyE') {
             if (this.state === 'PLAYING') this.activateSlowMotion();
@@ -740,18 +840,27 @@
       initUI() {
         document.getElementById('btn-play').onclick = () => {
           sound.init();
-          sound.startBGM();
-          if (GameSave.currentLevel === 1) {
-            this.showCutscene();
-          } else {
-            this.startLevel(GameSave.currentLevel);
-          }
+          this.openGuide(false);
         };
 
         document.getElementById('btn-level-select').onclick = () => this.openLevelSelect();
-        document.getElementById('btn-shop-menu').onclick = () => this.openShop();
+        document.getElementById('btn-shop-menu').onclick = () => this.openShop('screen-menu');
         document.getElementById('btn-guide').onclick = () => document.getElementById('screen-guide').classList.remove('hidden');
         document.getElementById('btn-story').onclick = () => document.getElementById('screen-story').classList.remove('hidden');
+
+        document.getElementById('btn-guide-start').onclick = () => this.closeGuide();
+        document.getElementById('btn-guide-skip').onclick = () => this.closeGuide();
+        document.getElementById('btn-pause-guide').onclick = () => this.openGuide(true);
+        document.getElementById('btn-menu-lvl-prev').onclick = () => this.changeMenuLevel(-1);
+        document.getElementById('btn-menu-lvl-next').onclick = () => this.changeMenuLevel(1);
+        document.getElementById('btn-pause-lvl-prev').onclick = () => this.changePauseLevel(-1);
+        document.getElementById('btn-pause-lvl-next').onclick = () => this.changePauseLevel(1);
+        document.getElementById('btn-pause-go').onclick = () => {
+          GameSave.currentLevel = this.pauseSelLevel;
+          GameSave.save();
+          this.togglePause();
+          this.startLevel(this.pauseSelLevel);
+        };
 
         document.querySelectorAll('.close-modal').forEach(btn => {
           btn.onclick = () => {
@@ -766,8 +875,7 @@
 
         document.getElementById('btn-resume').onclick = () => this.togglePause();
         document.getElementById('btn-pause-shop').onclick = () => {
-          this.togglePause();
-          this.openShop();
+          this.openShop('screen-pause');   // mantém a partida pausada enquanto a loja está aberta
         };
         document.getElementById('btn-pause-restart').onclick = () => {
           this.togglePause();
@@ -776,40 +884,100 @@
         document.getElementById('btn-pause-menu').onclick = () => {
           this.togglePause();
           this.showScreen('screen-menu');
+          this.state = 'MENU';
         };
 
-        document.getElementById('btn-close-shop').onclick = () => document.getElementById('screen-shop').classList.add('hidden');
-        document.getElementById('btn-shop-back').onclick = () => document.getElementById('screen-shop').classList.add('hidden');
+        document.getElementById('btn-close-shop').onclick = () => this.closeShop();
+        document.getElementById('btn-shop-back').onclick = () => this.closeShop();
         document.getElementById('btn-shop-play').onclick = () => {
-          document.getElementById('screen-shop').classList.add('hidden');
-          this.startLevel(GameSave.currentLevel);
+          if (this.shopReturn === 'screen-pause' && this.state === 'PAUSED') {
+            // veio da pausa: retoma a mesma partida
+            document.getElementById('screen-shop').classList.add('hidden');
+            this.shopReturn = null;
+            this.togglePause();
+          } else {
+            document.getElementById('screen-shop').classList.add('hidden');
+            this.shopReturn = null;
+            this.startLevel(GameSave.currentLevel);
+          }
         };
 
         document.getElementById('btn-next-level').onclick = () => this.startLevel(GameSave.currentLevel);
-        document.getElementById('btn-clear-shop').onclick = () => {
-          document.getElementById('screen-level-clear').classList.add('hidden');
-          this.openShop();
-        };
+        document.getElementById('btn-clear-shop').onclick = () => this.openShop('screen-level-clear');
 
         document.getElementById('btn-retry').onclick = () => this.startLevel(this.levelData.levelNum);
-        document.getElementById('btn-gameover-shop').onclick = () => {
-          document.getElementById('screen-game-over').classList.add('hidden');
-          this.openShop();
+        document.getElementById('btn-gameover-shop').onclick = () => this.openShop('screen-game-over');
+        document.getElementById('btn-gameover-menu').onclick = () => {
+          this.showScreen('screen-menu');
+          this.state = 'MENU';
         };
-        document.getElementById('btn-gameover-menu').onclick = () => this.showScreen('screen-menu');
 
         document.getElementById('btn-victory-restart').onclick = () => {
           GameSave.currentLevel = 1;
           GameSave.save();
           this.showScreen('screen-menu');
+          this.state = 'MENU';
         };
       }
 
+      beginFromMenu() {
+        sound.startBGM();
+        if (GameSave.currentLevel === 1) {
+          this.showCutscene();
+        } else {
+          this.startLevel(GameSave.currentLevel);
+        }
+      }
+
+      openGuide(fromPause) {
+        this.guideFromPause = fromPause;
+        document.getElementById('btn-guide-start').textContent = fromPause ? 'ENTENDI — VOLTAR' : 'ENTENDI — COMEÇAR';
+        document.getElementById('screen-intro').classList.remove('hidden');
+      }
+
+      closeGuide() {
+        document.getElementById('screen-intro').classList.add('hidden');
+        if (!this.guideFromPause) this.beginFromMenu();
+      }
+
+      handleLevelKey(dir) {
+        const menuVisible = !document.getElementById('screen-menu').classList.contains('hidden');
+        if (this.state === 'PAUSED') this.changePauseLevel(dir);
+        else if (menuVisible && this.state !== 'PLAYING') this.changeMenuLevel(dir);
+      }
+
+      changeMenuLevel(dir) {
+        const n = GameSave.currentLevel + dir;
+        if (n < 1 || n > GameSave.highestUnlockedLevel) return;
+        GameSave.currentLevel = n;
+        GameSave.save();
+        this.updateMenuLevelLabel();
+      }
+
+      updateMenuLevelLabel() {
+        const el = document.getElementById('menu-level-label');
+        if (el) el.textContent = `FASE ${String(GameSave.currentLevel).padStart(2, '0')} / 20`;
+      }
+
+      changePauseLevel(dir) {
+        const n = this.pauseSelLevel + dir;
+        if (n < 1 || n > GameSave.highestUnlockedLevel) return;
+        this.pauseSelLevel = n;
+        this.updatePauseLevelLabel();
+      }
+
+      updatePauseLevelLabel() {
+        const el = document.getElementById('pause-level-label');
+        if (el) el.textContent = `FASE ${String(this.pauseSelLevel).padStart(2, '0')} / 20`;
+      }
+
       showScreen(screenId) {
+        this.shopReturn = null;
         document.querySelectorAll('.overlay-screen').forEach(el => el.classList.add('hidden'));
         if (screenId) {
           const target = document.getElementById(screenId);
           if (target) target.classList.remove('hidden');
+          if (screenId === 'screen-menu') this.updateMenuLevelLabel();
         }
       }
 
@@ -819,8 +987,12 @@
       }
 
       togglePause() {
+        // Com a loja aberta, P/ESC não retomam a partida por baixo dela
+        if (!document.getElementById('screen-shop').classList.contains('hidden')) return;
         if (this.state === 'PLAYING') {
           this.state = 'PAUSED';
+          this.pauseSelLevel = this.levelData ? this.levelData.levelNum : 1;
+          this.updatePauseLevelLabel();
           document.getElementById('screen-pause').classList.remove('hidden');
         } else if (this.state === 'PAUSED') {
           this.state = 'PLAYING';
@@ -930,6 +1102,8 @@
         this.comboStreak = 0;
         this.comboTimer = 0;
         this.resetRunMissions();
+        this.speedBonus = 0;
+        this.dashTimer = 0;
 
         this.cameraX = this.player.x - 220;
         sound.startBGM();
@@ -976,7 +1150,7 @@
          IMPROVED MECHANICS: JUMP, SLIDE DASH, FAST DROP
          ========================================================================= */
       triggerJump() {
-        const jumpMult = UPGRADES_CONFIG.jump.getValue(GameSave.upgrades.jump || 0);
+        const jumpMult = UPGRADES_CONFIG.jump.getValue(GameSave.upgrades.jump || 0) * Math.sqrt(1 + this.getSkin().jump);
 
         if (this.player.isGrounded || this.player.coyoteTimer > 0) {
           // Clean First Jump
@@ -1047,7 +1221,6 @@
         const badge = document.getElementById('hud-combo-badge');
         badge.style.transform = 'scale(1.15)';
         setTimeout(() => badge.style.transform = 'scale(1)', 140);
-        document.getElementById('hud-combo-val').textContent = `x${this.combo} (${this.comboStreak})`;
       }
 
       breakCombo() {
@@ -1057,7 +1230,14 @@
         this.combo = 1;
         this.comboStreak = 0;
         this.comboTimer = 0;
-        document.getElementById('hud-combo-val').textContent = `x1 (0)`;
+      }
+
+      // Acerto válido em obstáculo: soma combo + bônus de velocidade (limitado a +30%)
+      registerDodge(label) {
+        this.speedBonus = Math.min(0.3, this.speedBonus + 0.04);
+        this.addComboPoint(label);
+        this.vfx.spawnFloatingText(this.player.x + 30, this.player.y - 55, '+VELOCIDADE', '#00f0ff', 1.0);
+        this.vfx.spawnParticles(this.player.x - 10, this.player.y, 10, { color: '#00f0ff', speed: 5, angle: Math.PI });
       }
 
       activateSlowMotion() {
@@ -1070,6 +1250,11 @@
 
         this.vfx.spawnParticles(this.player.x, this.player.y, 25, { color: '#00f0ff', speed: 6, life: 0.6 });
         this.vfx.spawnFloatingText(this.player.x, this.player.y - 35, 'CÂMERA LENTA!', '#00f0ff', 1.2);
+
+        // Dash para a frente: uma única vez por ativação (tempo real, 0.45s)
+        this.dashTimer = 0.45;
+        this.vfx.spawnFloatingText(this.player.x + 20, this.player.y - 60, 'DASH!', '#ffe600', 1.2);
+        this.vfx.spawnParticles(this.player.x - 10, this.player.y, 18, { color: '#ffe600', speed: 7, angle: Math.PI });
       }
 
       /* =========================================================================
@@ -1110,15 +1295,21 @@
         if (this.powerups.turbo > 0) this.powerups.turbo -= dt;
         if (this.powerups.mult > 0) this.powerups.mult -= dt;
         if (this.powerups.threat > 0) this.powerups.threat -= dt;
+        if (this.speedBonus > 0) this.speedBonus = Math.max(0, this.speedBonus - 0.006 * dt);
 
         // Player Speed with upgrades, turbo, and combo momentum
         const speedMult = UPGRADES_CONFIG.speed.getValue(GameSave.upgrades.speed || 0);
-        let targetVx = this.player.baseSpeed * speedMult * (1 + (this.combo - 1) * 0.04);
+        let targetVx = this.player.baseSpeed * speedMult * (1 + (this.combo - 1) * 0.04) * (1 + this.getSkin().speed) * (1 + this.speedBonus);
         if (this.powerups.turbo > 0) targetVx *= 1.36;
         if (this.player.stumbleTimer > 0) {
           this.player.stumbleTimer -= dt;
           targetVx *= 0.52;
         }
+        if (this.dashTimer > 0) {
+          this.dashTimer -= dt;
+          targetVx *= 1.7;
+        }
+        targetVx = Math.min(targetVx, 17); // teto de velocidade
         this.player.vx = targetVx;
 
         // Ghost Trail Generation
@@ -1133,6 +1324,11 @@
           if (this.player.trail.length > 8) this.player.trail.shift();
         } else {
           if (this.player.trail.length > 0) this.player.trail.shift();
+        }
+
+        // Turbo: rastro de fogo (somente o jogador)
+        if (this.powerups.turbo > 0 && Math.random() < 0.6) {
+          this.vfx.spawnParticles(this.player.x - 14, this.player.y + 4, 1, { color: '#ff4400', speed: 3, angle: Math.PI });
         }
 
         // Coyote Timer & Jump Buffering
@@ -1179,6 +1375,14 @@
         // Ground & Building Collisions
         this.checkCollisions();
 
+        // Obstáculo superado sem tropeçar = acerto válido (uma única vez por obstáculo)
+        for (const ob of this.levelData.obstacles) {
+          if (ob.type !== 'pipe' && !ob.hit && !ob.passed && this.player.x - 14 > ob.x + ob.w) {
+            ob.passed = true;
+            this.registerDodge(ob.type === 'tank' ? 'PULO PERFEITO!' : 'DESVIO PERFEITO!');
+          }
+        }
+
         // Screen Fall (Abismo Urbano)
         if (this.player.y > 750) {
           this.gameOver('Você caiu em um abismo entre os edifícios!');
@@ -1188,7 +1392,7 @@
         // Spring Trampoline Collisions
         for (let sp of this.levelData.springs) {
           if (Math.abs(this.player.x - sp.x) < 28 && Math.abs(this.player.y + 24 - sp.y) < 20) {
-            const jumpMult = UPGRADES_CONFIG.jump.getValue(GameSave.upgrades.jump || 0);
+            const jumpMult = UPGRADES_CONFIG.jump.getValue(GameSave.upgrades.jump || 0) * Math.sqrt(1 + this.getSkin().jump);
             this.player.vy = -750 * jumpMult;
             this.player.isGrounded = false;
             this.player.canDoubleJump = true;
@@ -1206,6 +1410,7 @@
         for (let i = this.levelData.coins.length - 1; i >= 0; i--) {
           const c = this.levelData.coins[i];
           const dx = this.player.x - c.x;
+          if (dx > magnetRange || dx < -magnetRange) continue; // longe demais: nem ímã nem coleta
           const dy = this.player.y - c.y;
           const dist = Math.hypot(dx, dy);
 
@@ -1217,7 +1422,7 @@
 
           if (dist < 28) {
             const mult = (this.powerups.mult > 0 ? 2 : 1) * this.combo;
-            const coinVal = 10 * mult;
+            const coinVal = 10 * mult * this.getSkin().coin;
             this.levelCoinsEarned += coinVal;
             GameSave.coins += coinVal;
             sound.coin(this.combo);
@@ -1293,7 +1498,7 @@
         const playerRight = this.player.x + 14;
 
         // Rooftops & Platforms
-        const allSurfaces = [...this.levelData.buildings, ...this.levelData.floatingPlatforms];
+        const allSurfaces = this.levelData._surfaces || (this.levelData._surfaces = [...this.levelData.buildings, ...this.levelData.floatingPlatforms]);
         for (let surf of allSurfaces) {
           if (playerRight > surf.x && playerLeft < surf.x + surf.w) {
             if (this.player.vy >= 0 && playerBottom >= surf.y - 2 && playerBottom <= surf.y + 22) {
@@ -1316,7 +1521,7 @@
                 if (!obs.slidUnder) {
                   obs.slidUnder = true;
                   this.vfx.spawnFloatingText(obs.x + 20, obs.y - 20, 'SLIDE PERFEITO! +50', '#00ff66', 1.15);
-                  this.addComboPoint('SLIDE PERFEITO!');
+                  this.registerDodge('SLIDE PERFEITO!');
                   this.checkMissionProgress('slide_pipes', 1);
                 }
               } else {
@@ -1343,6 +1548,7 @@
         if (this.player.stumbleTimer > 0) return;
         const shieldLvl = UPGRADES_CONFIG.shield.getValue(GameSave.upgrades.shield || 0);
         this.player.stumbleTimer = 0.55;
+        this.speedBonus *= 0.5;
         this.breakCombo();
         sound.hit();
         this.shakeScreen(0.32, 10);
@@ -1363,6 +1569,11 @@
          CHASER AI
          ========================================================================= */
       updateChaser(effectiveDt, realDt) {
+        // Dash da câmera lenta abre distância (apenas o jogador acelera)
+        if (this.dashTimer > 0) {
+          this.chaser.distance = Math.min(500, this.chaser.distance + 300 * realDt);
+        }
+
         if (this.powerups.threat > 0) {
           this.chaser.distance = Math.min(500, this.chaser.distance + 150 * realDt);
           return;
@@ -1370,6 +1581,11 @@
 
         const catchupRate = (0.22 + this.levelData.levelNum * 0.04) * 60 * effectiveDt;
         this.chaser.distance -= catchupRate;
+
+        // Velocidade do jogador acima da base (acertos, turbo, skin, dash) afasta o perseguidor
+        const refVx = this.player.baseSpeed * UPGRADES_CONFIG.speed.getValue(GameSave.upgrades.speed || 0);
+        const extraSpeed = Math.max(0, this.player.vx / refVx - 1);
+        this.chaser.distance = Math.min(500, this.chaser.distance + extraSpeed * 160 * effectiveDt);
 
         this.chaser.x = this.player.x - this.chaser.distance;
         this.chaser.y = this.player.y;
@@ -1489,8 +1705,9 @@
           this.shakeScreen(0.3, 14);
           document.getElementById('qte-status').textContent = 'ERROU O TIMING!';
           document.getElementById('qte-status').style.color = '#ff0055';
+          this.state = 'QTE_FAIL';
           setTimeout(() => {
-            this.gameOver('Você falhou no combate final e os capangas escaparam com o chefe!');
+            if (this.state === 'QTE_FAIL') this.gameOver('Você falhou no combate final e os capangas escaparam com o chefe!');
           }, 600);
         }
       }
@@ -1517,7 +1734,13 @@
       /* =========================================================================
          UPGRADE SHOP UI
          ========================================================================= */
-      openShop() {
+      openShop(returnId) {
+        if (returnId !== undefined) {
+          this.shopReturn = returnId;
+          if (returnId) document.getElementById(returnId).classList.add('hidden');
+        }
+        const shopModal = document.querySelector('#screen-shop .modal-box');
+        const prevScroll = shopModal ? shopModal.scrollTop : 0;
         const container = document.getElementById('shop-items-container');
         container.innerHTML = '';
         document.getElementById('shop-coins-display').textContent = GameSave.coins;
@@ -1565,7 +1788,57 @@
           container.appendChild(item);
         }
 
+        this.renderSkins();
         document.getElementById('screen-shop').classList.remove('hidden');
+        if (shopModal) shopModal.scrollTop = prevScroll;
+      }
+
+      closeShop() {
+        document.getElementById('screen-shop').classList.add('hidden');
+        const back = this.shopReturn;
+        this.shopReturn = null;
+        if (back) document.getElementById(back).classList.remove('hidden');
+      }
+
+      renderSkins() {
+        const box = document.getElementById('skins-container');
+        box.innerHTML = '';
+        for (const sk of SKINS) {
+          const owned = GameSave.skinsOwned.includes(sk.id);
+          const eq = GameSave.skinEquipped === sk.id;
+          const card = document.createElement('div');
+          card.className = 'shop-item skin-card' + (eq ? ' equipped' : '');
+
+          const cv = document.createElement('canvas');
+          cv.width = 84;
+          cv.height = 96;
+          cv.className = 'skin-prev';
+          const c2 = cv.getContext('2d');
+          c2.save();
+          c2.scale(1.4, 1.4);
+          this.drawRunnerSilhouette(c2, 30, 34, false, 1.0, sk.body, sk);
+          c2.restore();
+
+          let label, disabled = false, handler = null;
+          if (eq) { label = 'EQUIPADO'; disabled = true; }
+          else if (owned) { label = 'EQUIPAR'; handler = () => { GameSave.equipSkin(sk.id); this.openShop(); }; }
+          else if (GameSave.coins < sk.price) { label = 'MOEDAS INSUFICIENTES'; disabled = true; }
+          else { label = 'COMPRAR'; handler = () => { if (GameSave.buySkin(sk.id)) { sound.powerup(); this.openShop(); } }; }
+
+          const info = document.createElement('div');
+          info.className = 'skin-info';
+          info.innerHTML = `
+            <div class="shop-item-title">${sk.name}</div>
+            <div class="skin-stats">🏃 Velocidade +${Math.round(sk.speed * 100)}%<br>⬆ Pulo +${Math.round(sk.jump * 100)}%<br>🪙 Moedas x${sk.coin}</div>
+            <div class="shop-cost">${sk.id === 0 ? 'GRÁTIS' : (owned ? 'DESBLOQUEADO' : '🪙 ' + sk.price)}</div>
+            <button class="btn btn-accent btn-buy" style="width:100%;" ${disabled ? 'disabled' : ''}>${label}</button>
+          `;
+          if (handler) info.querySelector('button').onclick = handler;
+
+          card.appendChild(cv);
+          card.appendChild(info);
+          box.appendChild(card);
+        }
       }
 
       /* =========================================================================
@@ -1574,48 +1847,61 @@
       updateHUD() {
         if (!this.levelData) return;
 
-        document.getElementById('hud-level').textContent = `${String(this.levelData.levelNum).padStart(2, '0')} / 20`;
-        document.getElementById('hud-coins').textContent = GameSave.coins;
+        // Cache: só toca no DOM quando o valor mudou (antes eram dezenas de escritas por frame)
+        const hc = this._hudCache || (this._hudCache = {});
+        const set = (id, v, kind) => {
+          const key = id + (kind || '');
+          if (hc[key] === v) return;
+          hc[key] = v;
+          const el = document.getElementById(id);
+          if (kind === 'width') el.style.width = v;
+          else if (kind === 'color') el.style.color = v;
+          else if (kind === 'html') el.innerHTML = v;
+          else el.textContent = v;
+        };
+
+        set('hud-level', `${String(this.levelData.levelNum).padStart(2, '0')} / 20`);
+        set('hud-coins', String(GameSave.coins));
+        set('hud-combo-val', `x${this.combo} (${this.comboStreak}) ⚡+${Math.round(this.speedBonus * 100)}%`);
 
         let slowPips = '';
         for (let i = 0; i < 5; i++) {
           slowPips += i < this.slowmoCharges ? '⚡' : '○';
         }
-        document.getElementById('hud-slowmo').textContent = `${slowPips} [E]`;
+        set('hud-slowmo', `${slowPips} [E]`);
 
         const progress = Math.min(100, Math.max(0, Math.round((this.player.x / this.levelData.goalX) * 100)));
-        document.getElementById('hud-dist-text').textContent = `${progress}%`;
-        document.getElementById('hud-progress-fill').style.width = `${progress}%`;
+        set('hud-dist-text', `${progress}%`);
+        set('hud-progress-fill', `${progress}%`, 'width');
 
         const threatPct = Math.min(100, Math.max(0, Math.round((this.chaser.distance / 500) * 100)));
-        document.getElementById('hud-threat-fill').style.width = `${threatPct}%`;
-        document.getElementById('hud-chaser-dist').textContent = `${Math.round(this.chaser.distance)}m`;
+        set('hud-threat-fill', `${threatPct}%`, 'width');
+        set('hud-chaser-dist', `${Math.round(this.chaser.distance)}m`);
 
-        const statusElem = document.getElementById('hud-chaser-status');
         if (this.chaser.distance > 280) {
-          statusElem.textContent = 'SEGURO';
-          statusElem.style.color = '#00ff66';
+          set('hud-chaser-status', 'SEGURO');
+          set('hud-chaser-status', '#00ff66', 'color');
         } else if (this.chaser.distance > 120) {
-          statusElem.textContent = 'APROXIMANDO';
-          statusElem.style.color = '#ffd700';
+          set('hud-chaser-status', 'APROXIMANDO');
+          set('hud-chaser-status', '#ffd700', 'color');
         } else {
-          statusElem.textContent = 'PERIGO IMINENTE!';
-          statusElem.style.color = '#ff1e42';
+          set('hud-chaser-status', 'PERIGO IMINENTE!');
+          set('hud-chaser-status', '#ff1e42', 'color');
         }
 
-        document.getElementById('hud-timer').textContent = `${Math.ceil(this.levelTimer)}s`;
+        set('hud-timer', `${Math.ceil(this.levelTimer)}s`);
 
-        const pContainer = document.getElementById('hud-powerups');
-        pContainer.innerHTML = '';
+        let pills = '';
         if (this.powerups.turbo > 0) {
-          pContainer.innerHTML += `<div class="powerup-pill powerup-turbo">TURBO (${Math.ceil(this.powerups.turbo)}s)</div>`;
+          pills += `<div class="powerup-pill powerup-turbo">TURBO (${Math.ceil(this.powerups.turbo)}s)</div>`;
         }
         if (this.powerups.mult > 0) {
-          pContainer.innerHTML += `<div class="powerup-pill powerup-mult">2X MOEDAS (${Math.ceil(this.powerups.mult)}s)</div>`;
+          pills += `<div class="powerup-pill powerup-mult">2X MOEDAS (${Math.ceil(this.powerups.mult)}s)</div>`;
         }
         if (this.powerups.threat > 0) {
-          pContainer.innerHTML += `<div class="powerup-pill powerup-threat">AMEAÇA PARADA (${Math.ceil(this.powerups.threat)}s)</div>`;
+          pills += `<div class="powerup-pill powerup-threat">AMEAÇA PARADA (${Math.ceil(this.powerups.threat)}s)</div>`;
         }
+        set('hud-powerups', pills, 'html');
       }
 
       /* =========================================================================
@@ -1802,20 +2088,7 @@
           // Render Coins
           for (let c of this.levelData.coins) {
             if (c.x > cam - 30 && c.x < cam + 1300) {
-              ctx.save();
-              ctx.translate(c.x - cam, c.y);
-              ctx.fillStyle = '#ffd700';
-              ctx.shadowColor = '#ffd700';
-              ctx.shadowBlur = 12;
-              ctx.beginPath();
-              ctx.arc(0, 0, c.radius, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.fillStyle = '#000';
-              ctx.font = 'bold 11px sans-serif';
-              ctx.textAlign = 'center';
-              ctx.textBaseline = 'middle';
-              ctx.fillText('$', 0, 1);
-              ctx.restore();
+              ctx.drawImage(this.coinSprite, c.x - cam - 24, c.y - 24);
             }
           }
 
@@ -1886,7 +2159,8 @@
             this.player.y,
             this.player.isSliding,
             this.player.runCycle,
-            '#0a0a0e'
+            this.getSkin().body,
+            this.getSkin()
           );
 
           // Chaser Silhouette
@@ -1930,7 +2204,8 @@
 
         // Distant Skyline
         ctx.fillStyle = '#060714';
-        const dOffset = (cam * 0.1) % 400;
+        // O deslocamento precisa ser módulo do ESPAÇAMENTO (160), senão a grade salta quando o módulo reinicia
+        const dOffset = (((cam * 0.1) % 160) + 160) % 160;
         for (let x = -dOffset; x < 1400; x += 160) {
           ctx.fillRect(x, 260, 110, 460);
           ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
@@ -1943,11 +2218,14 @@
         }
 
         // Midground Skyline & Neon Signs
-        const mOffset = (cam * 0.3) % 500;
+        // Módulo = espaçamento (220); placas presas ao índice do prédio no mundo, não à posição na tela
+        const mScroll = cam * 0.3;
+        const mOffset = ((mScroll % 220) + 220) % 220;
+        const mBase = Math.floor(mScroll / 220);
         ctx.fillStyle = '#0a0d1d';
-        for (let x = -mOffset; x < 1400; x += 220) {
+        for (let x = -mOffset, mi = 0; x < 1400; x += 220, mi++) {
           ctx.fillRect(x, 340, 160, 380);
-          if (x % 440 < 220) {
+          if (((mBase + mi) & 1) === 0) {
             ctx.fillStyle = 'rgba(0, 240, 255, 0.2)';
             ctx.fillRect(x + 20, 310, 120, 24);
             ctx.fillStyle = '#00f0ff';
@@ -1961,9 +2239,11 @@
       /* =========================================================================
          IMPROVED ATHLETIC VECTOR SPRINT & CHASER KINEMATICS
          ========================================================================= */
-      drawRunnerSilhouette(ctx, x, y, isSliding, cycle, tintColor = '#08080c') {
+      drawRunnerSilhouette(ctx, x, y, isSliding, cycle, tintColor = '#08080c', skin = null) {
         ctx.save();
         ctx.translate(x, y);
+        const acc = skin ? skin.accent : '#00f0ff';
+        let hx = 0, hy = 0;
 
         if (isSliding) {
           // Low-profile baseball slide with one leg extended and hands balancing
@@ -1973,12 +2253,13 @@
           ctx.lineWidth = 7;
 
           // Head lowered forward
+          hx = 14; hy = 5;
           ctx.beginPath();
           ctx.arc(14, 5, 7.5, 0, Math.PI * 2);
           ctx.fill();
 
           // Neon Bandana / Scarf trailing back
-          ctx.strokeStyle = '#00f0ff';
+          ctx.strokeStyle = acc;
           ctx.lineWidth = 3.5;
           ctx.beginPath();
           ctx.moveTo(8, 4);
@@ -2030,12 +2311,13 @@
 
           // Head (with slight breathing bob)
           const headBob = Math.sin(cycle * 2) * 2;
+          hx = 4 + lean * 10; hy = -22 + headBob;
           ctx.beginPath();
           ctx.arc(4 + lean * 10, -22 + headBob, 8, 0, Math.PI * 2);
           ctx.fill();
 
           // Waving Neon Bandana Trail
-          ctx.strokeStyle = '#00f0ff';
+          ctx.strokeStyle = acc;
           ctx.lineWidth = 3.5;
           ctx.beginPath();
           ctx.moveTo(-2 + lean * 10, -20 + headBob);
@@ -2122,6 +2404,152 @@
           ctx.stroke();
         }
 
+        if (skin) this.drawSkinExtras(ctx, skin, hx, hy, cycle, isSliding);
+
+        ctx.restore();
+      }
+
+      getSkin() {
+        const sk = SKINS[GameSave.skinEquipped];
+        return (sk && GameSave.skinsOwned.includes(sk.id)) ? sk : SKINS[0];
+      }
+
+      // Acessórios que diferenciam cada personagem (capas, máscaras, capacetes...)
+      drawSkinExtras(ctx, sk, hx, hy, cycle, sl) {
+        const e = sk.extra;
+        if (e === 'none') return;
+        const hr = sl ? 7.5 : 8, w = Math.sin(cycle * 2), a = sk.accent;
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        const cape = (col) => {
+          ctx.fillStyle = col;
+          ctx.beginPath();
+          ctx.moveTo(hx - 4, hy + 8);
+          ctx.quadraticCurveTo(hx - 22, hy + 10 + w * 3, hx - 34, hy + 28 + w * 4);
+          ctx.lineTo(hx - 10, hy + 26);
+          ctx.closePath();
+          ctx.fill();
+        };
+        if (e === 'spider') {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.ellipse(hx + 3, hy - 1, 3, 1.8, -0.35, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = a;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.arc(hx, hy, hr - 1, Math.PI * 1.1, Math.PI * 1.9);
+          ctx.stroke();
+        } else if (e === 'bat') {
+          cape(a);
+          ctx.fillStyle = sk.body;
+          ctx.beginPath();
+          ctx.moveTo(hx - 6, hy - 5); ctx.lineTo(hx - 5, hy - 15); ctx.lineTo(hx - 1, hy - 7);
+          ctx.moveTo(hx + 1, hy - 7); ctx.lineTo(hx + 5, hy - 15); ctx.lineTo(hx + 6, hy - 4);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(hx + 2, hy - 2, 5, 1.8);
+        } else if (e === 'sun') {
+          cape(a);
+          if (!sl) {
+            ctx.fillStyle = '#facc15';
+            ctx.beginPath();
+            ctx.arc(hx - 4, hy + 11, 4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (e === 'ninja') {
+          ctx.strokeStyle = a;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(hx - hr, hy - 2); ctx.lineTo(hx + hr, hy - 2);
+          ctx.moveTo(hx - hr, hy - 2); ctx.quadraticCurveTo(hx - 20, hy - 6 + w * 4, hx - 30, hy + 2 + w * 5);
+          ctx.moveTo(hx - hr, hy - 1); ctx.quadraticCurveTo(hx - 18, hy + 3 - w * 4, hx - 27, hy + 9 - w * 4);
+          ctx.stroke();
+        } else if (e === 'cyber') {
+          ctx.shadowColor = a; ctx.shadowBlur = 8;
+          ctx.fillStyle = a;
+          ctx.fillRect(hx - 1, hy - 3, hr + 1, 3.5);
+        } else if (e === 'volt') {
+          ctx.shadowColor = a; ctx.shadowBlur = 8;
+          ctx.fillStyle = a;
+          ctx.beginPath();
+          ctx.moveTo(hx - hr, hy - 2); ctx.lineTo(hx - hr - 10, hy - 9); ctx.lineTo(hx - hr - 3, hy + 2);
+          ctx.moveTo(hx, hy - hr - 11); ctx.lineTo(hx - 5, hy - hr); ctx.lineTo(hx - 1, hy - hr); ctx.lineTo(hx - 4, hy - hr + 7);
+          ctx.lineTo(hx + 4, hy - hr - 2); ctx.lineTo(hx, hy - hr - 2);
+          ctx.fill();
+        } else if (e === 'astro') {
+          ctx.fillStyle = '#9ca3af';
+          ctx.fillRect(hx - 15, hy + 4, 7, 13);
+          ctx.fillStyle = 'rgba(56,189,248,0.35)';
+          ctx.strokeStyle = '#f3f4f6';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(hx, hy, hr + 3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else if (e === 'hunter') {
+          ctx.strokeStyle = a;
+          ctx.lineWidth = 1.7;
+          ctx.beginPath();
+          ctx.arc(hx + 4, hy - 1, 3.6, 0, Math.PI * 2);
+          ctx.moveTo(hx - 3, hy - hr); ctx.lineTo(hx - 5, hy - hr - 9);
+          ctx.stroke();
+          ctx.fillStyle = a;
+          ctx.beginPath();
+          ctx.arc(hx - 5, hy - hr - 10, 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (e === 'samurai') {
+          ctx.fillStyle = a;
+          ctx.beginPath();
+          ctx.moveTo(hx - hr - 4, hy - 3); ctx.lineTo(hx, hy - hr - 10); ctx.lineTo(hx + hr + 4, hy - 3);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(hx - hr - 4, hy - 3); ctx.lineTo(hx + hr + 4, hy - 3);
+          ctx.stroke();
+        } else if (e === 'robot') {
+          ctx.fillStyle = '#9ca3af';
+          ctx.strokeStyle = a;
+          ctx.lineWidth = 2;
+          ctx.fillRect(hx - hr, hy - hr, hr * 2, hr * 2 - 1);
+          ctx.strokeRect(hx - hr, hy - hr, hr * 2, hr * 2 - 1);
+          ctx.shadowColor = a; ctx.shadowBlur = 8;
+          ctx.fillStyle = a;
+          ctx.fillRect(hx, hy - 3, hr - 1, 3);
+          ctx.beginPath();
+          ctx.moveTo(hx, hy - hr); ctx.lineTo(hx, hy - hr - 7);
+          ctx.stroke();
+        } else if (e === 'cosmic') {
+          ctx.shadowColor = a; ctx.shadowBlur = 10;
+          ctx.strokeStyle = a;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.ellipse(hx, hy - hr - 5, 9, 3, 0, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.fillStyle = '#fff';
+          for (let i = 0; i < 3; i++) {
+            const ang = cycle + i * 2.1;
+            ctx.beginPath();
+            ctx.arc(hx + Math.cos(ang) * 16, hy + 4 + Math.sin(ang) * 10, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (e === 'flame') {
+          for (let i = 0; i < 3; i++) {
+            const x0 = hx - 6 + i * 6;
+            const h = 9 + Math.sin(cycle * 3 + i * 2) * 4;
+            ctx.fillStyle = a;
+            ctx.beginPath();
+            ctx.moveTo(x0 - 4, hy - hr + 3); ctx.lineTo(x0, hy - hr - h); ctx.lineTo(x0 + 4, hy - hr + 3);
+            ctx.fill();
+            ctx.fillStyle = '#fde047';
+            ctx.beginPath();
+            ctx.moveTo(x0 - 2, hy - hr + 3); ctx.lineTo(x0, hy - hr - h * 0.5); ctx.lineTo(x0 + 2, hy - hr + 3);
+            ctx.fill();
+          }
+        }
         ctx.restore();
       }
 
@@ -2204,7 +2632,11 @@
           this.updateQTE(dt);
         }
 
-        this.render();
+        // Fora da partida a cena não muda: desenha só uma vez por mudança de estado
+        if (this.state === 'PLAYING' || this.state === 'QTE' || this.state === 'QTE_FAIL' || this._renderedState !== this.state) {
+          this.render();
+          this._renderedState = this.state;
+        }
         requestAnimationFrame((t) => this.gameLoop(t));
       }
     }
